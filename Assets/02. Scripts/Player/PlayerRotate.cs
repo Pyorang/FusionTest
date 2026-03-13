@@ -1,51 +1,64 @@
+using Fusion;
 using UnityEngine;
 using Unity.Cinemachine;
 
-public class PlayerRotate : MonoBehaviour
+public class PlayerRotate : NetworkBehaviour
 {
     [Header("Mouse Settings")]
     [SerializeField] private float mouseSensitivity = 2f;
     [SerializeField] private float minPitch = -40f;
     [SerializeField] private float maxPitch = 60f;
 
-    private CinemachineCamera _cinemachineCamera;
     private Transform _target;
-    private float _yaw;
-    private float _pitch;
+    private PlayerController _playerController;
+
+    [Networked] private float Yaw { get; set; }
+    [Networked] private float Pitch { get; set; }
 
     private void Awake()
     {
-        _target = transform.Find("Target");
-        _cinemachineCamera = FindFirstObjectByType<CinemachineCamera>();
-
-        if (_cinemachineCamera != null && _target != null)
-        {
-            _cinemachineCamera.Follow = _target;
-            _cinemachineCamera.LookAt = _target;
-        }
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        _playerController = GetComponent<PlayerController>();
     }
 
-    private void LateUpdate()
+    public override void Spawned()
     {
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+        _target = transform.Find("Target");
 
-        _yaw += mouseX;
-        _pitch -= mouseY;
-        _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
+        if (HasInputAuthority)
+        {
+            var cinemachineCamera = FindFirstObjectByType<CinemachineCamera>();
 
-        // 플레이어 본체는 좌우(yaw)만 회전
-        transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
+            if (cinemachineCamera != null && _target != null)
+            {
+                cinemachineCamera.Follow = _target;
+                cinemachineCamera.LookAt = _target;
+            }
 
-        // Target은 로컬 기준 상하(pitch)만 → Cinemachine이 추적
-        _target.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+    }
+
+    public override void FixedUpdateNetwork()
+    {
+        if (!GetInput(out NetworkInputData input)) return;
+
+        Yaw += input.mouseX * mouseSensitivity;
+        Pitch -= input.mouseY * mouseSensitivity;
+        Pitch = Mathf.Clamp(Pitch, minPitch, maxPitch);
+
+        if(_playerController.NetworkedHP > 0)
+        {
+            // 모든 클라이언트에서 동기화된 Yaw/Pitch로 회전 적용
+            transform.rotation = Quaternion.Euler(0f, Yaw, 0f);
+
+            if (_target != null)
+                _target.localRotation = Quaternion.Euler(Pitch, 0f, 0f);
+        }
     }
 
     public Quaternion GetYawRotation()
     {
-        return Quaternion.Euler(0f, _yaw, 0f);
+        return Quaternion.Euler(0f, Yaw, 0f);
     }
 }

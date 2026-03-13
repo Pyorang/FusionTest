@@ -1,107 +1,152 @@
 using UnityEngine;
-using UnityEngine.UIElements;
+using Fusion;
 
-[RequireComponent(typeof(CharacterController), typeof(PlayerController))]
-public class PlayerMove : MonoBehaviour
+[RequireComponent(typeof(NetworkCharacterController), typeof(PlayerController))]
+public class PlayerMove : NetworkBehaviour
 {
-    [Header("Ground Check")]
-    [SerializeField] private float groundCheckDistance = 0.3f;
-    [SerializeField] private LayerMask groundLayer;
+    [Header("낙하 사망")]
+    [SerializeField] private float _lethalFallDistance = 10f;
 
-    // 내부 상태
+    // Networked 상태
+    [Networked] private NetworkBool IsSprinting { get; set; }
+    [Networked] private float StaminaRegenTimer { get; set; }
+    [Networked] private float HighestY { get; set; }
+    [Networked] private NetworkBool WasGrounded { get; set; }
+
+    // 로컬 참조
     private PlayerStat _stat;
+    private PlayerController _playerController;
     private PlayerRotate _playerRotate;
     private PlayerAnimator _playerAnimator;
-    private CharacterController _controller;
-    private Vector3 _velocity;
-    private bool _isGrounded;
-    private bool _isSprinting;
-    private float _staminaRegenTimer;
-    private const float Gravity = -9.81f;
+    private PlayerAttack _playerAttack;
+    private NetworkCharacterController _ncc;
 
-    private void Awake()
+    public override void Spawned()
     {
-        _stat = GetComponent<PlayerController>().Stat;
+        _playerController = GetComponent<PlayerController>();
+        _stat = _playerController.Stat;
         _playerRotate = GetComponent<PlayerRotate>();
         _playerAnimator = GetComponent<PlayerAnimator>();
-        _controller = GetComponent<CharacterController>();
+        _playerAttack = GetComponent<PlayerAttack>();
+        _ncc = GetComponent<NetworkCharacterController>();
+
+        // NCC 회전 비활성화 — PlayerRotate에서 회전을 직접 처리
+        _ncc.rotationSpeed = 0f;
+
+        // 낙하 추적 초기화
+        HighestY = transform.position.y;
+        WasGrounded = true;
     }
 
-    private void Update()
+    public override void FixedUpdateNetwork()
     {
-        CheckGround();
-        HandleMovement();
-        HandleJump();
-        HandleStamina();
-        ApplyGravity();
+        if (!GetInput(out NetworkInputData input)) return;
+        if (_playerController.IsDead)
+        {
+            _ncc.Move(Vector3.zero);
+            return;
+        }
+
+        if (_playerAttack != null && _playerAttack.IsAttacking)
+        {
+            // 공격 중에는 이동/점프 불가, 중력 + 스태미나 회복만 처리
+            _ncc.Move(Vector3.zero);
+            HandleStamina(input);
+            CheckFallDamage();
+            return;
+        }
+
+        HandleMovement(input);
+        HandleJump(input);
+        HandleStamina(input);
+        CheckFallDamage();
     }
 
-    private void CheckGround()
+    public override void Render()
     {
-        _isGrounded = Physics.Raycast(transform.position, Vector3.down, groundCheckDistance, groundLayer);
-
-        if (_isGrounded && _velocity.y < 0f)
-            _velocity.y = -2f;
+        // 애니메이션은 매 렌더 프레임에서
+        Vector3 horizontalVel = new Vector3(_ncc.Velocity.x, 0f, _ncc.Velocity.z);
+        _playerAnimator.SetMoveSpeed(horizontalVel.magnitude);
     }
 
-    private void HandleMovement()
+    private void HandleMovement(NetworkInputData input)
     {
-        float h = Input.GetAxisRaw("Horizontal");
-        float v = Input.GetAxisRaw("Vertical");
-
-        Vector3 inputDir = new Vector3(h, 0f, v).normalized;
+        Vector3 inputDir = new Vector3(input.horizontal, 0f, input.vertical).normalized;
 
         // 카메라 yaw 기준으로 이동 방향 변환
         Vector3 moveDir = _playerRotate != null
             ? _playerRotate.GetYawRotation() * inputDir
             : inputDir;
 
-        bool wantSprint = Input.GetKey(KeyCode.LeftShift) && moveDir.magnitude > 0f;
-        _isSprinting = wantSprint && _stat.Stamina > 0f;
+        bool wantSprint = input.sprint && moveDir.magnitude > 0f;
+        IsSprinting = wantSprint && _playerController.NetworkedStamina > 0f;
 
-        float speed = _isSprinting
+        // NCC의 maxSpeed를 달리기 여부에 따라 동적 변경
+        _ncc.maxSpeed = IsSprinting
             ? _stat.MoveSpeed * _stat.SprintSpeedMultiplier
             : _stat.MoveSpeed;
 
-        _controller.Move(moveDir * speed * Time.deltaTime);
-
-        // 애니메이션: 수평 이동 속도 전달
-        Vector3 horizontalVel = new Vector3(_controller.velocity.x, 0f, _controller.velocity.z);
-        _playerAnimator.SetMoveSpeed(horizontalVel.magnitude);
+        // NCC.Move가 중력, 가감속, 지면체크를 모두 처리
+        _ncc.Move(moveDir);
     }
 
-    private void HandleJump()
+    private void HandleJump(NetworkInputData input)
     {
-        if (!Input.GetButtonDown("Jump")) return;
-        if (!_isGrounded) return;
-        if (_stat.Stamina < _stat.JumpStaminaRequired) return;
+        if (!input.jump) return;
+        if (!_ncc.Grounded) return;
+        if (_playerController.NetworkedStamina < _stat.JumpStaminaRequired) return;
 
-        _velocity.y = Mathf.Sqrt(_stat.JumpPower * -2f * Gravity);
-        _stat.Stamina -= _stat.JumpStaminaCost;
-        _staminaRegenTimer = _stat.StaminaRegenDelay;
+        _ncc.Jump(overrideImpulse: _stat.JumpPower);
+        _playerController.ModifyStamina(-_stat.JumpStaminaCost);
+        StaminaRegenTimer = _stat.StaminaRegenDelay;
     }
 
-    private void HandleStamina()
+    private void HandleStamina(NetworkInputData input)
     {
-        if (_isSprinting)
+        if (IsSprinting)
         {
-            _stat.Stamina -= _stat.StaminaDrainRate * Time.deltaTime;
-            _staminaRegenTimer = _stat.StaminaRegenDelay;
+            _playerController.ModifyStamina(-_stat.StaminaDrainRate * Runner.DeltaTime);
+            StaminaRegenTimer = _stat.StaminaRegenDelay;
         }
         else
         {
-            _staminaRegenTimer -= Time.deltaTime;
+            StaminaRegenTimer -= Runner.DeltaTime;
 
-            if (_staminaRegenTimer <= 0f)
+            if (StaminaRegenTimer <= 0f)
             {
-                _stat.Stamina += _stat.StaminaRegenRate * Time.deltaTime;
+                _playerController.ModifyStamina(_stat.StaminaRegenRate * Runner.DeltaTime);
             }
         }
     }
 
-    private void ApplyGravity()
+    private void CheckFallDamage()
     {
-        _velocity.y += Gravity * Time.deltaTime;
-        _controller.Move(_velocity * Time.deltaTime);
+        bool isGrounded = _ncc.Grounded;
+
+        if (isGrounded)
+        {
+            if (!WasGrounded)
+            {
+                float fallDistance = HighestY - transform.position.y;
+                if (fallDistance >= _lethalFallDistance)
+                {
+                    _playerController.TakeDamage(_playerController.NetworkedHP);
+                }
+            }
+            HighestY = transform.position.y;
+        }
+        else
+        {
+            if (transform.position.y > HighestY)
+                HighestY = transform.position.y;
+        }
+
+        WasGrounded = isGrounded;
+    }
+
+    public void ResetFallTracking()
+    {
+        HighestY = transform.position.y;
+        WasGrounded = true;
     }
 }

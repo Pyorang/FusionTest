@@ -7,6 +7,7 @@ public class PlayerAttack : MonoBehaviour
     [Tooltip("공격 순서 (Animator의 ComboIndex 값)")]
     [SerializeField] private int[] comboOrder = { 0, 1, 2 };
 
+    private PlayerController _playerController;
     private PlayerStat _stat;
     private PlayerAnimator _playerAnimator;
     private int _currentCombo;
@@ -17,13 +18,14 @@ public class PlayerAttack : MonoBehaviour
 
     private void Awake()
     {
-        _stat = GetComponent<PlayerController>().Stat;
+        _playerController = GetComponent<PlayerController>();
+        _stat = _playerController.Stat;
         _playerAnimator = GetComponent<PlayerAnimator>();
     }
 
     private void Update()
     {
-        if (Input.GetMouseButtonDown(0))
+        if (Input.GetMouseButtonDown(0) && _playerController.NetworkedHP > 0)
         {
             TryAttack();
         }
@@ -33,9 +35,9 @@ public class PlayerAttack : MonoBehaviour
     {
         if (!_isAttacking)
         {
-            if (_stat.Stamina < _stat.AttackStaminaRequired) return;
+            if (_playerController.NetworkedStamina < _stat.AttackStaminaRequired) return;
 
-            _stat.Stamina -= _stat.AttackStaminaCost;
+            _playerController.ModifyStamina(-_stat.AttackStaminaCost);
             _isAttacking = true;
             _currentCombo = 0;
             _playerAnimator.SetComboIndex(comboOrder[_currentCombo]);
@@ -43,9 +45,9 @@ public class PlayerAttack : MonoBehaviour
         }
         else if (_canNextAttack)
         {
-            if (_stat.Stamina < _stat.AttackStaminaRequired) return;
+            if (_playerController.NetworkedStamina < _stat.AttackStaminaRequired) return;
 
-            _stat.Stamina -= _stat.AttackStaminaCost;
+            _playerController.ModifyStamina(-_stat.AttackStaminaCost);
             _canNextAttack = false;
             _currentCombo++;
 
