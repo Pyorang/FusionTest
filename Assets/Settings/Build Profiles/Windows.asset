@@ -19,9 +19,7 @@ MonoBehaviour:
   m_PlatformBuildProfile:
     rid: 4287285161056534785
   m_OverrideGlobalSceneList: 1
-  m_Scenes:
-  - m_enabled: 1
-    m_path: Assets/01. Scenes/M_Demonstration_Mega 1.unity
+  m_Scenes: []
   m_HasScriptingDefines: 0
   m_ScriptingDefines: []
   m_PlayerSettingsYaml:
@@ -68,8 +66,8 @@ MonoBehaviour:
     - line: '|   m_SplashScreenLogos: []'
     - line: '|   m_VirtualRealitySplashScreen: {instanceID: 0}'
     - line: '|   m_HolographicTrackingLossScreen: {instanceID: 0}'
-    - line: '|   defaultScreenWidth: 960'
-    - line: '|   defaultScreenHeight: 540'
+    - line: '|   defaultScreenWidth: 1920'
+    - line: '|   defaultScreenHeight: 1080'
     - line: '|   defaultScreenWidthWeb: 960'
     - line: '|   defaultScreenHeightWeb: 600'
     - line: '|   m_StereoRenderingPath: 0'
