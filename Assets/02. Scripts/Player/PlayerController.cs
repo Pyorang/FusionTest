@@ -8,20 +8,22 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float respawnDelay = 5f;
 
     public PlayerStat Stat => stat;
-    public bool IsDead { get; private set; }
 
+    [Networked] public NetworkBool IsDead { get; set; }
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedStamina { get; set; }
 
     private PlayerAnimator _playerAnimator;
     private PlayerMove _playerMove;
     private NetworkCharacterController _ncc;
+    private ChangeDetector _changeDetector;
 
     public override void Spawned()
     {
         _playerAnimator = GetComponent<PlayerAnimator>();
         _playerMove = GetComponent<PlayerMove>();
         _ncc = GetComponent<NetworkCharacterController>();
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         if (Object.HasStateAuthority)
         {
@@ -44,6 +46,17 @@ public class PlayerController : NetworkBehaviour
     {
         stat.HP = NetworkedHP;
         stat.Stamina = NetworkedStamina;
+
+        foreach (var change in _changeDetector.DetectChanges(this))
+        {
+            if (change == nameof(IsDead))
+            {
+                if (IsDead)
+                    _playerAnimator.TriggerDie();
+                else
+                    _playerAnimator.TriggerIdle();
+            }
+        }
     }
 
     public void TakeDamage(float damage)
@@ -59,7 +72,6 @@ public class PlayerController : NetworkBehaviour
         if (IsDead) return;
 
         IsDead = true;
-        _playerAnimator.TriggerDie();
         StartCoroutine(RespawnCoroutine());
     }
 
@@ -73,7 +85,6 @@ public class PlayerController : NetworkBehaviour
         _playerMove.ResetFallTracking();
 
         IsDead = false;
-        _playerAnimator.TriggerIdle();
     }
 
     private Vector3 GetRandomSpawnPosition()

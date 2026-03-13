@@ -14,6 +14,9 @@ public class ConnectManager : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private NetworkPrefabRef _playerPrefab;
     private Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
 
+    private bool _attackPressed;
+    private bool _jumpPressed;
+
     [SerializeField] private Transform[] _spawnPoints;
     public Transform[] SpawnPoints => _spawnPoints;
 
@@ -49,6 +52,14 @@ public class ConnectManager : MonoBehaviour, INetworkRunnerCallbacks
         });
     }
 
+    private void Update()
+    {
+        if (Input.GetMouseButtonDown(0))
+            _attackPressed = true;
+        if (Input.GetKeyDown(KeyCode.Space))
+            _jumpPressed = true;
+    }
+
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
         NetworkInputData data = new NetworkInputData();
@@ -59,8 +70,12 @@ public class ConnectManager : MonoBehaviour, INetworkRunnerCallbacks
         data.mouseX = Input.GetAxis("Mouse X");
         data.mouseY = Input.GetAxis("Mouse Y");
 
-        data.jump = Input.GetKey(KeyCode.Space);
+        data.jump = _jumpPressed;
         data.sprint = Input.GetKey(KeyCode.LeftShift);
+
+        data.attack = _attackPressed;
+        _attackPressed = false;
+        _jumpPressed = false;
 
         input.Set(data);
     }

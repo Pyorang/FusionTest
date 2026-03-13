@@ -1,7 +1,8 @@
+using Fusion;
 using UnityEngine;
 
 [RequireComponent(typeof(PlayerAnimator), typeof(PlayerController))]
-public class PlayerAttack : MonoBehaviour
+public class PlayerAttack : NetworkBehaviour
 {
     [Header("콤보 설정")]
     [Tooltip("공격 순서 (Animator의 ComboIndex 값)")]
@@ -10,38 +11,64 @@ public class PlayerAttack : MonoBehaviour
     private PlayerController _playerController;
     private PlayerStat _stat;
     private PlayerAnimator _playerAnimator;
-    private int _currentCombo;
-    private bool _isAttacking;
+
+    [Networked] public NetworkBool IsAttacking { get; set; }
+    [Networked] private int CurrentComboStep { get; set; }
+    [Networked] private int AttackTriggerCount { get; set; }
+
     private bool _canNextAttack;
+    private bool _pendingAttackEnd;
 
-    public bool IsAttacking => _isAttacking;
+    private ChangeDetector _changeDetector;
 
-    private void Awake()
+    public override void Spawned()
     {
         _playerController = GetComponent<PlayerController>();
         _stat = _playerController.Stat;
         _playerAnimator = GetComponent<PlayerAnimator>();
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
     }
 
-    private void Update()
+    public override void FixedUpdateNetwork()
     {
-        if (Input.GetMouseButtonDown(0) && _playerController.NetworkedHP > 0)
+        if (!GetInput(out NetworkInputData input)) return;
+        if (_playerController.NetworkedHP <= 0) return;
+
+        if (_pendingAttackEnd)
         {
+            IsAttacking = false;
+            _canNextAttack = false;
+            CurrentComboStep = 0;
+            _pendingAttackEnd = false;
+        }
+
+        if (input.attack)
             TryAttack();
+    }
+
+    public override void Render()
+    {
+        foreach (var change in _changeDetector.DetectChanges(this))
+        {
+            if (change == nameof(AttackTriggerCount))
+            {
+                _playerAnimator.SetComboIndex(comboOrder[CurrentComboStep]);
+                _playerAnimator.TriggerAttack();
+            }
         }
     }
 
     private void TryAttack()
     {
-        if (!_isAttacking)
+        if (!IsAttacking)
         {
             if (_playerController.NetworkedStamina < _stat.AttackStaminaRequired) return;
 
             _playerController.ModifyStamina(-_stat.AttackStaminaCost);
-            _isAttacking = true;
-            _currentCombo = 0;
-            _playerAnimator.SetComboIndex(comboOrder[_currentCombo]);
-            _playerAnimator.TriggerAttack();
+            IsAttacking = true;
+            CurrentComboStep = 0;
+            AttackTriggerCount++;
+            _canNextAttack = false;
         }
         else if (_canNextAttack)
         {
@@ -49,13 +76,8 @@ public class PlayerAttack : MonoBehaviour
 
             _playerController.ModifyStamina(-_stat.AttackStaminaCost);
             _canNextAttack = false;
-            _currentCombo++;
-
-            if (_currentCombo >= comboOrder.Length)
-                _currentCombo = 0;
-
-            _playerAnimator.SetComboIndex(comboOrder[_currentCombo]);
-            _playerAnimator.TriggerAttack();
+            CurrentComboStep = (CurrentComboStep + 1) % comboOrder.Length;
+            AttackTriggerCount++;
         }
     }
 
@@ -72,8 +94,7 @@ public class PlayerAttack : MonoBehaviour
     /// </summary>
     public void OnAttackEnd()
     {
-        _isAttacking = false;
+        _pendingAttackEnd = true;
         _canNextAttack = false;
-        _currentCombo = 0;
     }
 }

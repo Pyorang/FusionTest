@@ -9,4 +9,5 @@ public struct NetworkInputData : INetworkInput
     public float mouseY;
     public NetworkBool jump;
     public NetworkBool sprint;
+    public NetworkBool attack;
 }
